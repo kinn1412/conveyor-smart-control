@@ -8,13 +8,6 @@ trapezoidal moves, positions the servo, and enforces safety.
 Course project for Automatic Control: the deliverables are control performance (POT, t_s, e_ss,
 tracking error) and the report.
 
-| Document | Content |
-|---|---|
-| [spec.md](spec.md) | Requirements (REQ-xxx), protocol, state machine, safety. Source of truth |
-| [plan.md](plan.md) | Phases, tasks, done criteria |
-| [docs/design.md](docs/design.md) | Design decisions, data flow, CubeMX integration checklist |
-| [CLAUDE.md](CLAUDE.md) | Code rules and conventions |
-
 ## Status
 
 - Firmware, unit tests, SIL and Python tools are written. Host tests pass.
