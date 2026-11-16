@@ -1,0 +1,2 @@
+../App/ctrl/lpf.c:3:6:lpf_init	24	static
+../App/ctrl/lpf.c:9:7:lpf_step	24	static

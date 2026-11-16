@@ -1,0 +1,4 @@
+../App/drv/timing.h:10:24:timing_cyc	4	static
+../App/drv/timing.h:15:24:timing_cyc_to_us	16	static
+../App/app/bringup.c:39:13:bringup_task	40	static
+../App/app/bringup.c:75:6:bringup_start	24	static

@@ -58,7 +58,9 @@ def wait_enter(msg):
 
 
 def t_pwm(link, a):
-    levels = [0, 250, 500, 1000, -250]
+    # Below the STALL threshold (600 permille): with no encoder feedback a longer hold trips STALL.
+    # 100 % is linear from these points: V(500) = 2 x V(250).
+    levels = [0, 250, 500, -250, -500]
     if not a.motor_disconnected:
         levels = [d for d in levels if abs(d) <= BRINGUP_DUTY]
         print(f"motor connected: duty limited to {BRINGUP_DUTY} permille "

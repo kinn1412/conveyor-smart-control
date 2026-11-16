@@ -1,0 +1,3 @@
+../App/drv/motor.c:8:6:motor_init	1
+../App/drv/motor.c:14:6:motor_set	4
+../App/drv/motor.c:27:6:motor_kill	1

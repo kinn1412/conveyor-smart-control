@@ -1,0 +1,6 @@
+../shared/proto/proto.h:62:24:proto_crc16_update	24	static
+../shared/proto/proto.h:70:24:proto_crc16	24	static
+../shared/proto/proto.h:78:20:proto_put_u16	16	static
+../shared/proto/frame.c:5:6:frame_parser_init	16	static
+../shared/proto/frame.c:10:6:frame_parse_byte	32	static
+../shared/proto/frame.c:72:8:frame_build	32	static

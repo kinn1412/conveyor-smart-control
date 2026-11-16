@@ -4,12 +4,13 @@
 /* Pure constants. No HAL / FreeRTOS includes: used by host tests and SIL. */
 
 /* 1: driver bring-up without UART (App/app/bringup.c). 0: normal firmware. */
-#define APP_BRINGUP 1
+#define APP_BRINGUP 0
 
 /* Timing */
 #define CTRL_PERIOD_MS 10u
 #define CTRL_TS_S 0.01f
 #define CTRL_MISSED_US 15000u
+
 
 /* Motor, encoder and belt. TBD values: spec §11 */
 #define GEAR_RATIO 90 /* TBD: JGB37-520 107 rpm; check with the hand-turn test */

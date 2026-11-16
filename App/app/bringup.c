@@ -15,7 +15,7 @@
 #include "timing.h"
 
 #define BU_STEP_MS 2000u
-#define BU_DUTY_PERMILLE 150
+#define BU_DUTY_PERMILLE 300
 
 volatile uint8_t bu_auto = 1;
 volatile uint8_t bu_step;
@@ -76,3 +76,4 @@ void bringup_start(void)
 {
     xTaskCreateStatic(bringup_task, "bringup", 256, NULL, tskIDLE_PRIORITY + 1, bu_stack, &bu_tcb);
 }
+

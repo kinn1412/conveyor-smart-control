@@ -1,0 +1,2 @@
+../App/drv/servo.c:8:6:servo_init	8	static
+../App/drv/servo.c:14:6:servo_set_us	16	static
