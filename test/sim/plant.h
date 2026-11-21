@@ -2,7 +2,7 @@
 #define PLANT_H
 
 /* Belt plant for SIL and conveyor tests: first order + deadzone + encoder quantization.
-   Signs assume DIR_SIGN = ENC_SIGN = 1. */
+   Takes the physical duty and returns the raw counter, so DIR_SIGN / ENC_SIGN are undone here. */
 
 #include <math.h>
 #include <stdint.h>
@@ -16,7 +16,7 @@ typedef struct {
 
 static inline void plant_step(plant_t *p, int16_t duty, double dt_s)
 {
-    double u = duty;
+    double u = duty * DIR_SIGN;
     double target = 0.0;
     if (fabs(u) > p->dz_permille)
         target = p->k_mms_per_permille * (u - copysign(p->dz_permille, u));
@@ -33,7 +33,7 @@ static inline void plant_period(plant_t *p, int16_t duty)
 
 static inline uint16_t plant_cnt(const plant_t *p)
 {
-    return (uint16_t)(int32_t)floor(p->pos_um / UM_PER_CNT);
+    return (uint16_t)((int32_t)floor(p->pos_um / UM_PER_CNT) * ENC_SIGN);
 }
 
 #endif

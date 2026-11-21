@@ -13,6 +13,14 @@ ENABLE, SET_VEL, MOVE_REL, STOP, ESTOP, CLEAR_FAULT, SET_LIMITS = range(0x10, 0x
 SERVO_SET, SET_GAINS, SET_TELEM, OPENLOOP_DUTY = 0x20, 0x30, 0x31, 0x40
 EVT_MOVE_DONE, EVT_FAULT, TELEM = 0xE0, 0xE1, 0xF0
 EXEMPT = {PING, GET_STATUS, GET_DIAG}  # not duplicate-filtered (REQ-P07)
+# Allowed states per command, spec §6.4 (mirror of cmd_allowed() in App/comm/cmd.c).
+# OPENLOOP_DUTY in RUNNING is only accepted in open-loop mode; the firmware checks that.
+ALLOWED = {ENABLE: {1, 2}, SET_VEL: {2, 3}, MOVE_REL: {2}, CLEAR_FAULT: {4}, SET_LIMITS: {1, 2},
+           SET_GAINS: {1, 2}, SERVO_SET: {1, 2, 3}, OPENLOOP_DUTY: {2, 3}}
+
+
+def allowed(cmd: int, state: int) -> bool:
+    return state in ALLOWED.get(cmd, {0, 1, 2, 3, 4})
 
 # Payload formats of §6.4, little-endian
 CMD_FMT = {
@@ -71,7 +79,8 @@ def fault_names(bits: int) -> str:
 class Parser:
     """Byte-wise parser, same rules as frame.c (REQ-P01, P02)."""
 
-    def __init__(self):
+    def __init__(self, gap_s: float = GAP_S):
+        self.gap_s = gap_s
         self.buf = bytearray()
         self.last_t = 0.0
         self.err_crc = self.err_len = self.err_timeout = 0
@@ -80,7 +89,7 @@ class Parser:
         """Returns a list of (seq, cmd, payload)."""
         frames = []
         for b in data:
-            if self.buf and now - self.last_t > GAP_S:
+            if self.buf and now - self.last_t > self.gap_s:
                 self.err_timeout += 1
                 self.buf.clear()
             self.last_t = now

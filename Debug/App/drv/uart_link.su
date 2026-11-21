@@ -1,6 +1,0 @@
-../App/drv/uart_link.c:12:13:rx_restart	8	static
-../App/drv/uart_link.c:18:6:uart_link_start	16	static
-../App/drv/uart_link.c:25:6:uart_link_send	16	static
-../App/drv/uart_link.c:31:6:HAL_UARTEx_RxEventCallback	16	static
-../App/drv/uart_link.c:45:6:HAL_UART_TxCpltCallback	16	static
-../App/drv/uart_link.c:52:6:HAL_UART_ErrorCallback	16	static

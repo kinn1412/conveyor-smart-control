@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
+#include "semphr.h"
 #include "stream_buffer.h"
 #include "task.h"
 
@@ -36,6 +37,10 @@ static StaticQueue_t cmd_q_cb, tx_q_cb;
 static uint8_t cmd_q_buf[CMD_QUEUE_LEN * sizeof(cmd_t)];
 static uint8_t tx_q_buf[TX_QUEUE_LEN * sizeof(tx_item_t)];
 static QueueHandle_t cmd_q, tx_q;
+
+/* Given by ControlTask after it applied queued commands: CommRxTask ACKs only then (REQ-P09) */
+static StaticSemaphore_t applied_cb;
+static SemaphoreHandle_t applied_sem;
 
 static volatile uint32_t g_estop, last_rx_tick;
 
@@ -96,8 +101,11 @@ static void control_task(void *arg)
         first = false;
 
         cmd_t c;
-        while (xQueueReceive(cmd_q, &c, 0) == pdTRUE)
+        bool applied = false;
+        while (xQueueReceive(cmd_q, &c, 0) == pdTRUE) {
             conveyor_apply(&conv, &c);
+            applied = true;
+        }
 
         TickType_t now = xTaskGetTickCount();
         conv_in_t in = {
@@ -130,6 +138,8 @@ static void control_task(void *arg)
         snap_state = conv.state;
         snap_openloop = conv.state == PROTO_STATE_RUNNING && conv.mode == MODE_OPENLOOP;
         taskEXIT_CRITICAL();
+        if (applied)
+            xSemaphoreGive(applied_sem); /* the snapshot now shows the new state */
 
         if (conv.telem_hz && ++telem_div >= 1000u / CTRL_PERIOD_MS / conv.telem_hz) {
             uint8_t p[PROTO_TELEM_LEN];
@@ -204,10 +214,13 @@ static void handle_frame(cmd_ctx_t *ctx, const frame_parser_t *parser, const fra
         break;
     }
     case CMD_ACT_QUEUE:
+        xSemaphoreTake(applied_sem, 0); /* drop a give left by an earlier timeout */
         if (c.cmd == PROTO_CMD_STOP)
             xQueueSendToFront(cmd_q, &c, 0);
         else
             xQueueSend(cmd_q, &c, 0);
+        /* REQ-P09: ACK after ControlTask applied it, so the next command sees the new state */
+        xSemaphoreTake(applied_sem, pdMS_TO_TICKS(CMD_APPLY_TIMEOUT_MS));
         break;
     case CMD_ACT_DIAG_RESET:
         taskENTER_CRITICAL();
@@ -272,6 +285,7 @@ void app_init(void)
     rx_stream = xStreamBufferCreateStatic(sizeof rx_stream_buf, 1, rx_stream_buf, &rx_stream_cb);
     cmd_q = xQueueCreateStatic(CMD_QUEUE_LEN, sizeof(cmd_t), cmd_q_buf, &cmd_q_cb);
     tx_q = xQueueCreateStatic(TX_QUEUE_LEN, sizeof(tx_item_t), tx_q_buf, &tx_q_cb);
+    applied_sem = xSemaphoreCreateBinaryStatic(&applied_cb);
 
     ctrl_h = xTaskCreateStatic(control_task, "ctrl", CTRL_STACK_WORDS, NULL,
                                   tskIDLE_PRIORITY + CTRL_PRIO, ctrl_stack, &ctrl_tcb);

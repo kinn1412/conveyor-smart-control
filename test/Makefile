@@ -12,6 +12,7 @@ CFLAGS = -std=c11 -Wall -Wextra -Wconversion -funsigned-char -g $(INC)
 
 LIB_SRC = $(PROTO)/frame.c $(APP)/ctrl/lpf.c $(APP)/ctrl/pid.c $(APP)/ctrl/traj.c \
           $(APP)/comm/cmd.c $(APP)/app/safety.c $(APP)/app/conveyor.c
+HDRS = $(wildcard $(PROTO)/*.h $(APP)/*.h $(APP)/*/*.h sim/*.h)
 TESTS = test_proto test_frame test_cmd test_lpf test_pid test_traj test_safety test_conveyor
 
 # Files that must stay free of HAL / CMSIS / FreeRTOS / drv
@@ -34,13 +35,13 @@ $(BUILD):
 $(BUILD)/unity.o: unity/unity.c | $(BUILD)
 	$(CC) -std=c11 -g -c -o $@ $<
 
-$(BUILD)/%$(EXE): %.c $(LIB_SRC) $(BUILD)/unity.o sim/plant.h
+$(BUILD)/%$(EXE): %.c $(LIB_SRC) $(BUILD)/unity.o $(HDRS)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c %.o,$^) -lm
 
 $(TESTS:%=run_%): run_%: $(BUILD)/%$(EXE)
 	./$<
 
-$(BUILD)/sim$(EXE): sim/sim.c $(LIB_SRC) sim/plant.h | $(BUILD)
+$(BUILD)/sim$(EXE): sim/sim.c $(LIB_SRC) $(HDRS) | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) -lm
 
 sim: $(BUILD)/sim$(EXE)

@@ -1,4 +1,0 @@
-../App/drv/timing.h:10:24:timing_cyc	1
-../App/drv/timing.h:15:24:timing_cyc_to_us	1
-../App/app/bringup.c:39:13:bringup_task	4
-../App/app/bringup.c:75:6:bringup_start	1

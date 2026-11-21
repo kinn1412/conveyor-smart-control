@@ -32,9 +32,12 @@ def telem_row(t: dict) -> list:
 class Link:
     """Serial link: reader thread, request/reply with retry (REQ-P08), heartbeat, CSV log."""
 
-    def __init__(self, port: str, baud: int = 115200, verbose: bool = True):
-        self.ser = serial.serial_for_url(port, baud, timeout=0.002)  # COM5 or socket://host:port
-        self.parser = P.Parser()
+    def __init__(self, port: str, baud: int = 115200, verbose: bool = True,
+                 on_telem=None, on_event=None):
+        self.ser = serial.serial_for_url(port, baud, timeout=0.05)  # COM5 or socket://host:port
+        # 5 ms (REQ-P02) is for the MCU. Here bytes arrive in OS-buffered chunks and are
+        # handled when the GIL allows, so a frame split across reads can look "late"; CRC still checks
+        self.parser = P.Parser(gap_s=0.1)
         self.verbose = verbose
         self.seq = 0
         self.last_exec = None  # (seq, cmd) of the last non-exempt request
@@ -46,6 +49,10 @@ class Link:
         self.csv = None
         self.running = True
         self.heartbeat_on = False
+        self.on_telem = on_telem  # called in the reader thread with each telemetry dict
+        self.on_event = on_event  # called in the reader thread with (cmd, payload)
+        self.last_rx = 0.0        # perf_counter of the last valid frame
+        self.ping_ms = None       # last heartbeat round trip
         self.reader = threading.Thread(target=self._read_loop, daemon=True)
         self.reader.start()
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
@@ -59,11 +66,14 @@ class Link:
 
     def _read_loop(self):
         while self.running:
-            data = self.ser.read(256)
+            # read(1) returns on the first byte; read(256) would wait for the whole timeout
+            data = self.ser.read(1)
             if not data:
                 continue
-            now = time.monotonic()
+            data += self.ser.read(self.ser.in_waiting)
+            now = time.perf_counter()
             for seq, cmd, pl in self.parser.feed(data, now):
+                self.last_rx = now
                 self._dispatch(seq, cmd, pl, now)
 
     def _dispatch(self, seq, cmd, pl, now):
@@ -71,9 +81,13 @@ class Link:
             self.telem = P.unpack_telem(pl)
             if self.csv:
                 self.csv[1].writerow(telem_row(self.telem))
+            if self.on_telem:
+                self.on_telem(self.telem)
         elif cmd in (P.EVT_MOVE_DONE, P.EVT_FAULT):
             with self.lock:
                 self.events.append((now, cmd, pl))
+            if self.on_event:
+                self.on_event(cmd, pl)
             if self.verbose:
                 print("  <-", describe_event(cmd, pl))
         else:
@@ -88,9 +102,11 @@ class Link:
             time.sleep(0.1)
             if self.heartbeat_on:
                 try:
-                    self.request(P.PING)
+                    self.ping_ms = self.request(P.PING)[2] * 1000
                 except LinkError:
-                    print("heartbeat: no reply")
+                    self.ping_ms = None
+                    if self.verbose:
+                        print("heartbeat: no reply")
 
     def _next_seq(self, cmd):
         with self.lock:
@@ -111,14 +127,15 @@ class Link:
             self.pending[key] = entry
         try:
             for attempt in range(1 + retries):
-                t0 = time.monotonic()
+                t0 = time.perf_counter()
                 if attempt >= lose:
                     with self.tx_lock:
                         self.ser.write(frame)
                 if entry[0].wait(timeout):
+                    lat = entry[2] - t0
                     if cmd not in P.EXEMPT:
                         self.last_exec = (seq, cmd)
-                    return entry[1][0], entry[1][1:], entry[2] - t0
+                    return entry[1][0], entry[1][1:], lat
             raise LinkError(f"{P.CMD_NAME.get(cmd, hex(cmd))}: no reply after {retries} retries")
         finally:
             with self.lock:
@@ -135,8 +152,8 @@ class Link:
         return P.unpack_telem(self.cmd(P.GET_STATUS)[1])
 
     def wait_event(self, cmd, t_from, timeout):
-        end = time.monotonic() + timeout
-        while time.monotonic() < end:
+        end = time.perf_counter() + timeout
+        while time.perf_counter() < end:
             with self.lock:
                 for t, c, pl in self.events:
                     if c == cmd and t >= t_from:
@@ -244,7 +261,7 @@ def scn_move(link, a):
     for r in range(a.reps):
         path = os.path.join(a.out, f"move_{a.dist:g}_{r + 1}.csv")
         begin(link, path, a.gains, (a.vmax, a.amax))
-        t0 = time.monotonic()
+        t0 = time.perf_counter()
         link.cmd(P.MOVE_REL, int(round(a.dist * 1000)))
         t_est = abs(a.dist) / a.vmax + a.vmax / a.amax
         if link.wait_event(P.EVT_MOVE_DONE, t0, 2 * t_est + 3) is None:
@@ -346,40 +363,54 @@ def run_command(link, a):
     if a.cmd in SIMPLE:
         cmd, args = SIMPLE[a.cmd], ()
     else:
+        # lambdas: each command has its own argument names
         cmd, args = {
-            "enable": (P.ENABLE, (a.on,)),
-            "set-vel": (P.SET_VEL, (a.v,)),
-            "move-rel": (P.MOVE_REL, (int(round(a.mm * 1000)),)),
-            "set-limits": (P.SET_LIMITS, (a.vmax, a.amax)),
-            "servo-set": (P.SERVO_SET, (int(round(a.deg * 10)),)),
-            "set-gains": (P.SET_GAINS, (a.kpv, a.kiv, a.kpp, a.udz)),
-            "set-telem": (P.SET_TELEM, (a.hz,)),
-            "openloop-duty": (P.OPENLOOP_DUTY, (a.duty,)),
-        }[a.cmd]
+            "enable": lambda: (P.ENABLE, (a.on,)),
+            "set-vel": lambda: (P.SET_VEL, (a.v,)),
+            "move-rel": lambda: (P.MOVE_REL, (int(round(a.mm * 1000)),)),
+            "set-limits": lambda: (P.SET_LIMITS, (a.vmax, a.amax)),
+            "servo-set": lambda: (P.SERVO_SET, (int(round(a.deg * 10)),)),
+            "set-gains": lambda: (P.SET_GAINS, (a.kpv, a.kiv, a.kpp, a.udz)),
+            "set-telem": lambda: (P.SET_TELEM, (a.hz,)),
+            "openloop-duty": lambda: (P.OPENLOOP_DUTY, (a.duty,)),
+        }[a.cmd]()
     st, data, lat = link.request(cmd, P.pack(cmd, *args))
     print(describe_reply(cmd, st, data), f"({lat * 1000:.1f} ms)")
+    if st == 2:  # BAD_STATE: say which state refused it
+        t = link.status()
+        hint = {1: "run 'enable 1' first", 4: "run 'clear-fault', then 'enable 1'"}
+        print(f"  state={P.STATES[t['state']]} faults={P.fault_names(t['fault_bits'])}"
+              f" -> {hint.get(t['state'], 'see spec §6.4 for allowed states')}")
 
 
 def shell(link, ap):
     link.heartbeat_on = True
     print("commands as on the command line (without --port); 'quit' to exit")
-    while True:
+    try:
+        while True:
+            try:
+                line = input("> ").strip()
+            except EOFError:
+                break
+            if line in ("quit", "exit"):
+                break
+            if not line:
+                continue
+            try:
+                a = ap.parse_args(["--port", "-"] + shlex.split(line))
+                if a.cmd != "shell":
+                    run_command(link, a)
+            except SystemExit:
+                pass
+            except LinkError as e:
+                print("error:", e)
+    finally:
+        # Leave the actuator in IDLE: once the heartbeat stops, READY/RUNNING would trip WATCHDOG
         try:
-            line = input("> ").strip()
-        except EOFError:
-            break
-        if line in ("quit", "exit"):
-            break
-        if not line:
-            continue
-        try:
-            a = ap.parse_args(["--port", "-"] + shlex.split(line))
-            if a.cmd != "shell":
-                run_command(link, a)
-        except SystemExit:
+            link.cmd(P.STOP, check=False)
+            link.cmd(P.ENABLE, 0, check=False)
+        except LinkError:
             pass
-        except LinkError as e:
-            print("error:", e)
 
 
 def main():

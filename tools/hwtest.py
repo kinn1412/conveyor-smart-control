@@ -2,13 +2,14 @@
 
 python tools/hwtest.py --port COM5 <test> [options]
   pwm       duty steps for the multimeter check (plan 0.4)
-  encoder   hand-turn count check, ENC_CPR +- 4 per output rev (plan 0.5)
-  motor     direction / sign check at low duty (plan 0.6)
+  encoder   hand-turn count check, ENC_CPR +- 4 per encoder shaft rev (plan 0.5)
+  motor     direction / sign check, duty 700; --no-encoder: motor only (plan 0.6)
   servo     angle sweep (plan 0.7, 6.x)
   link      1000 requests with injected losses + duplicate filter (REQ-P04, P07, P08)
   watchdog  stop the heartbeat, expect FAULT WATCHDOG (plan 1.6)
   estop     ESTOP latency over 100 commands (REQ-S04)
   diag      timing / stack / errors under 100 Hz telemetry + 20 Hz commands (REQ-F01, F04, F07)
+  monitor   GET_STATUS every 100 ms: shows link loss and MCU resets (t_ms going back)
 """
 import argparse
 import math
@@ -29,7 +30,7 @@ def config_value(name):
         return float(re.search(rf"#define {name}\s+([-\d.]+)", f.read()).group(1))
 
 
-ENC_CPR = 11 * int(config_value("GEAR_RATIO")) * 4
+ENC_CPR = 4 * int(config_value("ENC_PPR"))
 UM_PER_CNT = math.pi * config_value("ROLLER_D_MM") * 1000.0 / ENC_CPR
 BRINGUP_DUTY = int(config_value("BRINGUP_DUTY_MAX_PERMILLE"))
 
@@ -80,7 +81,7 @@ def t_encoder(link, a):
     ensure_idle(link)
     link.heartbeat_on = True
     c0 = counts(link.status())
-    print("turn the motor output shaft exactly one revolution forward, then press Enter")
+    print("turn the encoder shaft exactly one revolution forward, then press Enter")
     try:
         while True:
             print(f"\r  {counts(link.status()) - c0:9.1f} counts", end="")
@@ -93,14 +94,30 @@ def t_encoder(link, a):
         pass
     print()
     n = counts(link.status()) - c0
-    check("one output rev", abs(n - ENC_CPR) <= 4,
-          f"{n:.1f} counts ({ENC_CPR} +- 4; negative: flip ENC_SIGN; wrong size: check GEAR_RATIO)")
+    check("one encoder rev", abs(n - ENC_CPR) <= 4,
+          f"{n:.1f} counts ({ENC_CPR} +- 4; negative: flip ENC_SIGN; wrong size: check ENC_PPR)")
+
+
+def t_motor_no_encoder(link, d):
+    # 0.4 s per direction: shorter than the STALL window (STALL_MS = 500), so no fault without counts
+    for sign, name in ((1, "forward"), (-1, "reverse")):
+        link.cmd(P.ENABLE, 1)
+        link.cmd(P.OPENLOOP_DUTY, sign * d)
+        time.sleep(0.4)
+        link.cmd(P.STOP, check=False)
+        time.sleep(0.5)
+        ans = input(f"duty {sign * d:+d}: did the belt move {name}? [y/n] ").strip().lower()
+        check(f"{name}: belt moves with the duty sign", ans == "y",
+              "" if ans == "y" else "(wrong way: flip DIR_SIGN; no motion: wiring / MDD10A / deadzone)")
+    link.cmd(P.ENABLE, 0, check=False)
 
 
 def t_motor(link, a):
-    d = min(a.duty, BRINGUP_DUTY)
+    d = max(-1000, min(1000, a.duty))  # above the belt deadzone (~550 permille, measured)
     ensure_idle(link)
     link.heartbeat_on = True
+    if a.no_encoder:
+        return t_motor_no_encoder(link, d)
     for sign, name in ((1, "forward"), (-1, "reverse")):
         link.cmd(P.ENABLE, 1)
         c0 = counts(link.status())
@@ -110,8 +127,10 @@ def t_motor(link, a):
         link.cmd(P.STOP, check=False)
         time.sleep(0.3)
         if st["state"] != 3:
+            hint = (" -> encoder gives no counts while the motor runs; check its supply and A/B wires"
+                    if st["fault_bits"] & 4 else "")
             check(f"{name} run", False, f"state {P.STATES[st['state']]} "
-                  f"faults {P.fault_names(st['fault_bits'])}")
+                  f"faults {P.fault_names(st['fault_bits'])}{hint}")
             ensure_idle(link)
             continue
         dn = counts(st) - c0
@@ -202,8 +221,8 @@ def t_diag(link, a):
     link.heartbeat_on = True
     e0 = P.unpack_diag(link.cmd(P.GET_DIAG)[1])
     link.cmd(P.SET_TELEM, 100)
-    end = time.monotonic() + a.time
-    while time.monotonic() < end:  # 20 Hz commands on top of the 10 Hz heartbeat
+    end = time.perf_counter() + a.time
+    while time.perf_counter() < end:  # 20 Hz commands on top of the 10 Hz heartbeat
         link.cmd(P.GET_STATUS)
         time.sleep(0.05)
     link.cmd(P.SET_TELEM, 0)
@@ -224,7 +243,37 @@ def t_diag(link, a):
     check("no frame errors (REQ-F03)", not any(errs.values()), str(errs))
 
 
-TESTS = {"pwm": t_pwm, "encoder": t_encoder, "motor": t_motor, "servo": t_servo, "link": t_link,
+def t_monitor(link, a):
+    """Run the motor (MDD10A test button or the GUI) while this prints; Ctrl+C to stop."""
+    link.heartbeat_on = False  # read only: no watchdog trip when the actuator is IDLE
+    prev_t, lost_since, resets = None, None, 0
+    end = time.perf_counter() + a.time
+    while time.perf_counter() < end:
+        now = time.strftime("%H:%M:%S")
+        try:
+            t = link.status()
+        except LinkError:
+            if lost_since is None:
+                lost_since = time.perf_counter()
+                print(f"{now}  NO REPLY")
+            time.sleep(0.1)
+            continue
+        if lost_since is not None:
+            print(f"{now}  link back after {time.perf_counter() - lost_since:.1f} s")
+            lost_since = None
+        if prev_t is not None and t["t_ms"] < prev_t:
+            resets += 1
+            print(f"{now}  MCU RESET: t_ms {prev_t} -> {t['t_ms']}")
+        prev_t = t["t_ms"]
+        print(f"{now}  t_ms={t['t_ms']:9d} state={P.STATES[t['state']]:7s} "
+              f"pos={t['pos_um'] / 1000:9.3f} mm  duty={t['duty']}", end="\r")
+        time.sleep(0.1)
+    print()
+    check("no MCU reset", resets == 0, f"{resets} reset(s)")
+    check("link up at the end", lost_since is None)
+
+
+TESTS = {"monitor": t_monitor, "pwm": t_pwm, "encoder": t_encoder, "motor": t_motor, "servo": t_servo, "link": t_link,
          "watchdog": t_watchdog, "estop": t_estop, "diag": t_diag}
 
 
@@ -235,8 +284,10 @@ def main():
     sub.add_parser("pwm").add_argument("--motor-disconnected", action="store_true")
     sub.add_parser("encoder")
     p = sub.add_parser("motor")
-    p.add_argument("--duty", type=int, default=200)
+    p.add_argument("--duty", type=int, default=700, help="permille, above the belt deadzone")
     p.add_argument("--time", type=float, default=1.5)
+    p.add_argument("--no-encoder", action="store_true",
+                   help="motor only: 0.4 s per direction, you confirm the direction")
     p = sub.add_parser("servo")
     p.add_argument("--start", type=float, default=-90)
     p.add_argument("--end", type=float, default=90)
@@ -248,6 +299,7 @@ def main():
     sub.add_parser("watchdog")
     sub.add_parser("estop").add_argument("--n", type=int, default=100)
     sub.add_parser("diag").add_argument("--time", type=float, default=60)
+    sub.add_parser("monitor").add_argument("--time", type=float, default=60)
     a = ap.parse_args()
 
     link = Link(a.port, verbose=False)
@@ -259,8 +311,9 @@ def main():
         print("\naborted")
         results.append(False)
     finally:
-        try:
+        try:  # leave IDLE so the watchdog does not latch a fault after we exit
             link.cmd(P.STOP, check=False)
+            link.cmd(P.ENABLE, 0, check=False)
         except LinkError:
             pass
         link.close()

@@ -74,6 +74,27 @@ def metrics(d):
     return move_metrics(d) if is_move(d) else vel_metrics(d)
 
 
+# Spec §10.1 targets: metric -> (limit, compare on the absolute value)
+TARGETS = {"POT_pct": (5.0, False), "t_s_s": (0.5, False), "e_ss_mms": (1.0, True),
+           "track_max_mm": (3.0, False), "final_err_mm": (1.0, True)}
+
+
+def passes(key, value):
+    """True / False against §10.1, None when the metric has no target."""
+    if key not in TARGETS or value != value:  # NaN never passes
+        return None if key not in TARGETS else False
+    limit, absolute = TARGETS[key]
+    return (abs(value) if absolute else value) <= limit
+
+
+def pi_from_model(k, tau, tau_cl, ts=0.01):
+    """Spec §5.2, pole cancellation of G(s) = K / (tau s + 1).
+    k in mm/s per permille, tau and tau_cl in s."""
+    kp_v = tau / (k * tau_cl)
+    return {"kp_v": kp_v, "ki_v": kp_v / tau, "kp_p_max": 1.0 / (5.0 * tau_cl),
+            "t_s": 4.0 * tau_cl, "ts_ok": ts <= tau_cl / 10.0}
+
+
 def print_table(rows, sim_row=None):
     keys = list(rows[0][1].keys())
     print("run".ljust(32) + "".join(k.rjust(14) for k in keys))

@@ -71,17 +71,17 @@ static void test_encoder_wrap(void) /* REQ-M01 */
     conveyor_init(&c, 65530);
     conv_in_t in = {.enc_cnt = 4};
     conveyor_step(&c, &in, &out);
-    TEST_ASSERT_EQUAL_INT32(10, c.pos_cnt);
+    TEST_ASSERT_EQUAL_INT32(10 * ENC_SIGN, c.pos_cnt);
     in.enc_cnt = 65534;
     conveyor_step(&c, &in, &out);
-    TEST_ASSERT_EQUAL_INT32(4, c.pos_cnt);
+    TEST_ASSERT_EQUAL_INT32(4 * ENC_SIGN, c.pos_cnt);
 }
 
 static void test_position_one_rev(void) /* REQ-M02 */
 {
     conv_in_t in = {.enc_cnt = ENC_CPR};
     conveyor_step(&c, &in, &out);
-    TEST_ASSERT_INT32_WITHIN(1, (int32_t)lround(ENC_CPR * UM_PER_CNT), c.pos_um);
+    TEST_ASSERT_INT32_WITHIN(1, (int32_t)lround(ENC_CPR * UM_PER_CNT) * ENC_SIGN, c.pos_um);
 }
 
 static void test_enable_disable(void)
@@ -163,10 +163,10 @@ static void test_openloop_and_sign(void)
     apply(PROTO_CMD_ENABLE, 1);
     apply(PROTO_CMD_OPENLOOP_DUTY, -250);
     step();
-    TEST_ASSERT_EQUAL(-250, out.duty_permille);
+    TEST_ASSERT_EQUAL(-250 * DIR_SIGN, out.duty_permille);
     apply(PROTO_CMD_OPENLOOP_DUTY, 300); /* allowed in RUNNING(OPENLOOP) */
     step();
-    TEST_ASSERT_EQUAL(300, out.duty_permille);
+    TEST_ASSERT_EQUAL(300 * DIR_SIGN, out.duty_permille);
     apply(PROTO_CMD_STOP, 0);
     step();
     TEST_ASSERT_EQUAL(PROTO_STATE_READY, c.state);
@@ -220,6 +220,9 @@ static void test_estop_and_clear(void)
 
 static void test_stall_fault(void)
 {
+#if !STALL_CHECK
+    TEST_IGNORE_MESSAGE("STALL_CHECK = 0 in config.h");
+#endif
     apply(PROTO_CMD_ENABLE, 1);
     apply(PROTO_CMD_OPENLOOP_DUTY, 700);
     pl.k_mms_per_permille = 0.0; /* belt held */
@@ -230,6 +233,9 @@ static void test_stall_fault(void)
 
 static void test_dead_encoder_trips_stall(void)
 {
+#if !STALL_CHECK
+    TEST_IGNORE_MESSAGE("STALL_CHECK = 0 in config.h");
+#endif
     apply(PROTO_CMD_ENABLE, 1);
     apply(PROTO_CMD_SET_VEL, 50);
     int i;

@@ -1,4 +1,0 @@
-../App/ctrl/traj.c:9:6:traj_init	88	static
-../App/ctrl/traj.c:14:6:traj_move	40	static
-../App/ctrl/traj.c:37:6:traj_ramp_to	16	static
-../App/ctrl/traj.c:43:6:traj_step	56	static

@@ -12,13 +12,13 @@
 #define CTRL_MISSED_US 15000u
 
 
-/* Motor, encoder and belt. TBD values: spec §11 */
-#define GEAR_RATIO 90 /* TBD: JGB37-520 107 rpm; check with the hand-turn test */
-#define ENC_CPR (11 * GEAR_RATIO * 4)
-#define ROLLER_D_MM 40.0 /* TBD: caliper measurement */
+/* Encoder and belt */
+#define ENC_PPR 500 /* Omron E6B2-CWZ6C*/
+#define ENC_CPR (ENC_PPR * 4)
+#define ROLLER_D_MM 40.0 /* TBD: driven roller, belt included; encoder geared 1:1 to its shaft */
 #define UM_PER_CNT (3.14159265358979 * ROLLER_D_MM * 1000.0 / ENC_CPR)
 #define V_MAX_MMS 150 /* TBD: ~0.7 x no-load speed (224 mm/s if D = 40 mm) */
-#define ENC_SIGN 1 /* set at bring-up (REQ-M04) */
+#define ENC_SIGN -1 /* set at bring-up (REQ-M04) */
 #define DIR_SIGN 1
 
 /* Limits */
@@ -51,6 +51,7 @@
 #define MOVE_DONE_MS 100u
 
 /* Safety (spec §8) */
+#define STALL_CHECK 0 /* 0 only for bring-up while the encoder does not count */
 #define WATCHDOG_MS 300u
 #define STALL_U_PERMILLE 600.0f
 #define STALL_V_MMS 5.0f
@@ -68,5 +69,6 @@
 #define TX_QUEUE_LEN 8u
 #define RX_TIMEOUT_MS 5u
 #define TX_DONE_TIMEOUT_MS 10u
+#define CMD_APPLY_TIMEOUT_MS 15u /* > one control period; REQ-P09 */
 
 #endif

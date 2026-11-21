@@ -1,8 +1,0 @@
-../App/app/conveyor.c:9:14:clampf	24	static
-../App/app/conveyor.c:15:13:go_ready	16	static
-../App/app/conveyor.c:26:13:enter_fault	24	static
-../App/app/conveyor.c:35:13:start_stop	16	static
-../App/app/conveyor.c:48:6:conveyor_init	24	static
-../App/app/conveyor.c:59:6:conveyor_apply	32	static
-../App/app/conveyor.c:132:6:conveyor_step	72	static
-../App/app/conveyor.c:205:6:conveyor_telem	80	static

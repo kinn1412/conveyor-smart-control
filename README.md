@@ -10,11 +10,12 @@ tracking error) and the report.
 
 ## Status
 
-- Firmware, unit tests, SIL and Python tools are written. Host tests pass.
-- STM32CubeIDE project at the repo root with FreeRTOS, USART1 + DMA, PWM, servo and LED; the `.ioc`
-  still misses the TIM4 encoder ([docs/design.md §5](docs/design.md)). Everything else compiles
-  with the CubeIDE GCC.
-- TBD values in `App/config.h`: `GEAR_RATIO` (1:90 assumed), `ROLLER_D_MM`, gains, `u_dz`, servo limits (spec §11).
+- Firmware, unit tests, SIL, Python tools and the tuning GUI are written. Host tests pass.
+- STM32CubeIDE project at the repo root (FreeRTOS, USART1 + DMA, PWM, TIM4 encoder, servo, LED).
+  On the board: link, timing, ESTOP and watchdog tests pass; encoder counts 2000 per rev.
+- The MCU and encoder need a supply separate from the motor (shared supply caused resets).
+- TBD values in `App/config.h`: `ROLLER_D_MM`, gains, `u_dz`, servo limits (spec §11).
+- Host side (H7, PC): commands, frames and API in [docs/host_interface.md](docs/host_interface.md).
 
 ## Layout
 
@@ -42,8 +43,8 @@ FreeRTOS headers, so they build and run on the PC. `make -C test` enforces this.
 
 ## Build and flash
 
-1. Open `bsw_conveyor_control.ioc` and apply the settings in [docs/design.md §5](docs/design.md),
-   then regenerate the code. `App/` and `shared/` are already source folders in `.cproject`.
+1. The CubeMX configuration is in `bsw_conveyor_control.ioc`; regenerate the code after any change.
+   `App/` and `shared/` are already source folders in `.cproject`.
 2. In STM32CubeIDE: File > Import > Existing Projects into Workspace > this folder.
 3. Build (Debug), then Run/Debug with the ST-Link (SWD). Or from the command line:
 
@@ -80,6 +81,23 @@ python tools/hwtest.py --port COM5 watchdog
 python tools/hwtest.py --port COM5 estop                         # latency <= 2 ms
 python tools/hwtest.py --port COM5 diag [--time 1800]            # timing, stacks, frame errors
 ```
+
+## Tuning GUI
+
+```
+python tools/gui.py
+```
+
+Pick the COM port, Connect. Tab **Tổng quan**: state buttons, telemetry, last config sent, GET_DIAG,
+servo, log. Tab **Dashboard**: control mode (Velocity / Position / Open-loop), setpoint, gains and
+limits, live plots of v, pos, error and duty. Esc sends ESTOP. Spec §12.
+
+- **Step test** (Velocity, Open-loop) and **Move** are recorded to `runs/` (CSV in the `host.py`
+  format + JSON with gains); metrics with PASS/FAIL against spec §10.1 appear under the plots.
+- Tick runs in the list to overlay them (t = 0 at the step); `Nạp CSV…` adds e.g. `test/sim/out.csv`.
+- **Gain calculator**: K, τ, τ_cl -> Kp_v, Ki_v, Kp_p (spec §5.2), copied to Tuning.
+- **Profile**: gains and limits saved in `tools/profiles/`; the selected one is sent on Connect.
+  Final gains go into `App/config.h` (plan 4.7).
 
 ## Running the conveyor
 

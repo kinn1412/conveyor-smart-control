@@ -1,8 +1,0 @@
-../App/app/conveyor.c:9:14:clampf	1
-../App/app/conveyor.c:15:13:go_ready	1
-../App/app/conveyor.c:26:13:enter_fault	1
-../App/app/conveyor.c:35:13:start_stop	3
-../App/app/conveyor.c:48:6:conveyor_init	1
-../App/app/conveyor.c:59:6:conveyor_apply	19
-../App/app/conveyor.c:132:6:conveyor_step	18
-../App/app/conveyor.c:205:6:conveyor_telem	4

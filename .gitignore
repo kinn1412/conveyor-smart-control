@@ -1,0 +1,18 @@
+# Not published
+CLAUDE.md
+.claude/
+spec.md
+plan.md
+docs/design.md
+
+# Build outputs
+Debug/
+Release/
+test/build/
+__pycache__/
+*.pyc
+
+# Generated / local data
+runs/
+test/vectors/*.hex
+test/sim/out.csv
